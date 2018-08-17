@@ -1,0 +1,144 @@
+---
+title: "NYC Council Collision Report"
+author: "Sanata Sy-Sahande"
+date: "August 16, 2018"
+output:
+  word_document: default
+  pdf_document: default
+  html_document: default
+---
+```{r include=FALSE}
+library(tidyverse)
+library(tm)
+library(ggmap)
+
+path <- "C:\\Users\\Sanata\\Dropbox\\NYC Council Data\\"
+
+
+#hourly 
+load(paste0(path, "rateByHour.RData"))
+#rates by type 
+load(paste0(path, "ratesByType.RData"))
+#top factors 
+load(paste0(path, "topContribFactors.RData")) #p.all.factors 
+#injury factors 
+load(paste0(path, "factor_rates_injury.RData"))
+#injury factors 
+load(paste0(path, "factor_rates_fatal.RData"))
+#vehicle type 
+load(paste0(path, "topVehicleType_fatal.RData"))
+ptest.veh <- ptest
+rm(ptest)
+#vehicle type rates 
+load(paste0(path, "mratesByVehic.RData"))
+```
+
+
+```{r }
+
+
+```
+
+
+
+### Best and Worst Driving Times  
+
+
+To identify driving times, I plot below the frequency of crashes by hour across all observations in the dataset, from 2012-2018. The best driving times (times when crashes are at their lowest levels) are in the early morning. The worst driving times are during morning and evening rush hour (max at 16h). 
+
+```{r echo=F}
+mybar <- barplot(as.matrix(tbl.by.hr[, -1]), beside=T, names.arg="", 
+                ylim=c(0, 100000) , axes=F, 
+                main = "Collisions by Hour, 2012-2018", 
+                xlab = "24-Hour Time", ylab = "Number of Collisions", 
+                cex.lab = 1.5, cex.main=1.5)              
+axis(side = 2, at = seq(0, 100000, 20000), labels=paste0(seq(0, 100, 20), "K"), cex.axis=1.1)
+axis(side = 1, at = mybar, labels=c(0:23))
+
+```
+
+
+### Factors Impacting  Injury Rates 
+
+The dataset identifies 50+ contributing factors to collisions, ranging from road conditions and vehicle-specific factors to driver behavior. To identify which factors are most associated with injury and fatal crashes, I compared the injury and mortality rates rates across all the factors. The greater the rates, the more likely this factor is in predicting high injury and mortality rates. 
+
+First, we look at the top contributing factors overall in the table below. These make up 90 percent of all factors cited. We see that improper lane passing, driver distraction, and vehicle problems make up half of all contributing factors.   
+
+```{r echo=F}
+library(knitr)
+cumsum <-  cumsum(p.all.factors)
+Pct <- round(p.all.factors, 2)*100
+kable(Pct[cumsum <=0.9])
+```
+
+Next, we look at injury and mortality rates, as well as crashes that involved both. This is important to establish a baseline so that we can determine what counts as a "high" mortality or injury rate. Fatal crashes are the rarest, making up .1% of all cases. 
+
+```{r echo=F}
+rownames(rates.by.type) <- "Percentage"
+kable(rates.by.type*100)
+```
+
+
+
+I then identified the factors that had injury and mortality rates that were at least twice as high as the baseline rates shown above. The barplots below show the factors associated with the greatest increases in injury and mortality rates. The bars indicate how much higher the rate was for each factor relative to the baselines presented above, denoted by the + sign. For a more intuitive interpretation, I also indicate how many times higher the injury and mortality rates are for each factor relative to the baseline, denoted by the X sign. 
+
+For injury rates, the most significant factors were collisions involving pedestrian or cyclists, passenger distractions, lighting defects and glare, physical disability, ignored traffic controls, and unsafe speeds. Notably, pedestrian confusion and passenger distractions more than tripled injury rates. 
+
+For mortality rates, the most significant factors were similar to those for injury rates, with the addition of alcohol, illness, and pavement defects. Speed and ignored traffic controls mattered much more, increasing mortality rates by a factor of 7. 
+
+
+
+```{r echo=F}
+rates.injury <- rates.injury[order(rates.injury$mean, decreasing = T), ]
+rates.injury$diff <- round(rates.injury$mean - rates.by.type$injury_mean, 2 )*100
+rates.injury$ratio <- round(rates.injury$mean / rates.by.type$injury_mean, 1)
+
+top.rates.i <- rates.injury[rates.injury$diff  >=15, ]
+factor.names <- c("Ped/Cyclist", "Passenger", "Lighting", "Glare", "Disability", "Traffic Control", "Speed")
+
+mybar <- barplot(top.rates.i$diff, names.arg = factor.names, ylim =c(0, 80),
+            main = "Percentage Point Increase in Injury Rates by Factor", 
+            cex.names = .75, las = 2)
+text(mybar, top.rates.i$diff + 5, labels =paste0("+", top.rates.i$diff))
+text(mybar, top.rates.i$diff - 5, labels =paste0(top.rates.i$ratio, "X"), font = 2)
+
+```
+```{r echo=F}
+rates.fatal <- rates.fatal[order(rates.fatal$mean, decreasing = T), ]
+rates.fatal$diff <- round(rates.fatal$mean - rates.by.type$fatal_mean, 4 )*100
+rates.fatal$ratio <- round(rates.fatal$mean / rates.by.type$fatal_mean, 1)
+
+top.rates.f <- rates.fatal[rates.fatal$diff  >=.2, ]
+factor.names <- c("Passenger", "Ped/Cyclist", "Speed", "Traffic Control", "Illness", "Alcohol", "Disability", "Pavement" )
+
+mybar <- barplot(top.rates.f$diff, names.arg = factor.names, ylim =c(0, 1),
+            main = "Percentage Point Increase in Mortality Rates by Factor", 
+            cex.names = .75, las = 2)
+text(mybar, top.rates.f$diff + 0.08, labels =paste0("+", top.rates.f$diff))
+text(mybar, top.rates.f$diff - 0.08, labels =paste0(top.rates.f$ratio, "X"), font = 2)
+
+```
+###  Effect of Vehicle Type on mortality rates
+
+
+Out of 13 vehicle types, I identified the four best predictors of fatal crashes. Below, I compare the mortality rates in crashes with and without the vehicle type. Two-wheel motor vehicles (scooters and motorcycles) had the greatest positive difference, resulting in mortality rates that are 10 times higher than the average.
+
+```{r echo=F}
+
+rates.by.v <- rates.by.v[-which(rates.by.v$diff<=0 | rates.by.v$mean.yes==0), ] #select top diffs
+v.mtx <- t(rates.by.v[, -3])
+colnames(v.mtx) <- c("Commercial-L", "Bus", "Two-wheel", "Bike")
+
+
+mybar <- barplot(v.mtx, beside=T, ylim=c(0, 1.5), 
+            main = "Mortality Rates by Vehicle Type", las = 1, cex.names = .85, 
+            ylab = "Percent of Fatal Crashes", cex.lab = 1.5, cex.main = 1.5)
+text(mybar, v.mtx+0.08, labels =rep(c("No", "Yes"), 4))
+text(mybar, v.mtx-0.05, labels =v.mtx, 
+     col = rep(c("white", "black"), 4), cex=.85)
+ 
+
+
+```
+
+
